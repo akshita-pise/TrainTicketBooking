@@ -30,6 +30,17 @@ public class BookTrains extends HttpServlet {
 
 	private TrainService trainService = new TrainServiceImpl();
 	private BookingService bookingService = new BookingServiceImpl();
+	
+	// Constructor for dependency injection
+    public BookTrains(TrainService trainService, BookingService bookingService) {
+        this.trainService = trainService;
+        this.bookingService = bookingService;
+    }
+
+    // Default constructor for normal servlet use
+    public BookTrains() {
+        this(new TrainServiceImpl(), new BookingServiceImpl());
+    }
 
 	public void doPost(HttpServletRequest req, HttpServletResponse res) throws IOException, ServletException {
 		PrintWriter pw = res.getWriter();
