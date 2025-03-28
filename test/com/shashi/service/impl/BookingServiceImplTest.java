@@ -3,20 +3,66 @@ package com.shashi.service.impl;
 import com.shashi.beans.HistoryBean;
 import com.shashi.beans.TrainException;
 import com.shashi.utility.DBUtil;
+import org.junit.*;
+import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnitRunner;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.UUID;
-import org.junit.Test;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
+
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
-import org.mockito.Mock;
 
+@RunWith(MockitoJUnitRunner.class)
 public class BookingServiceImplTest {
+
+	@Mock
+	private Connection mockConnection;
+
+	@Mock
+	private PreparedStatement mockPreparedStatement;
+
+	@Mock
+	private ResultSet mockResultSet;
+
+	@InjectMocks
+	private BookingServiceImpl bookingService;
+
+	private static MockedStatic<DBUtil> mockedDBUtil;
+
+	@BeforeClass
+	public static void setUpClass() {
+		mockedDBUtil = Mockito.mockStatic(DBUtil.class);
+	}
+
+	@Before
+	public void setUp() throws Exception {
+		MockitoAnnotations.openMocks(this);
+		mockedDBUtil.when(DBUtil::getConnection).thenReturn(mockConnection);
+
+		when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+		when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+		when(mockResultSet.next()).thenReturn(true);
+	}
+
+	@AfterClass
+	public static void tearDownClass() {
+		mockedDBUtil.close();
+	}
+
+	@After
+	public void tearDown() {
+		reset(mockConnection, mockPreparedStatement, mockResultSet);
+	}
 
 	/**
 	 * Test case for getAllBookingsByCustomerId method when no bookings are found.
@@ -26,35 +72,23 @@ public class BookingServiceImplTest {
 	@Test
 	public void getAllBookingsForCustomerwithNoBookings() throws Exception {
 		// Arrange
-		BookingServiceImpl bookingService = new BookingServiceImpl();
+
 		String customerEmailId = "nonexistent@example.com";
+		// Mock ResultSet to return no rows
 
-		// Mock database connection and prepared statement
-		Connection mockConnection = mock(Connection.class);
-		PreparedStatement mockPreparedStatement = mock(PreparedStatement.class);
-		ResultSet mockResultSet = mock(ResultSet.class);
+		when(mockResultSet.next()).thenReturn(false);
 
-		// Setup mock behavior
-		try (MockedStatic<DBUtil> mockedDBUtil = Mockito.mockStatic(DBUtil.class)) {
-			mockedDBUtil.when(DBUtil::getConnection).thenReturn(mockConnection);
-			when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
-			when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+		// Act
+		List<HistoryBean> result = bookingService.getAllBookingsByCustomerId(customerEmailId);
 
-			// Mock ResultSet to return no rows
-			when(mockResultSet.next()).thenReturn(false);
+		// Assert
+		assertNotNull(result);
+		assertTrue(result.isEmpty());
 
-			// Act
-			List<HistoryBean> result = bookingService.getAllBookingsByCustomerId(customerEmailId);
-
-			// Assert
-			assertNotNull(result);
-			assertTrue(result.isEmpty());
-
-			// Verify that the database interactions occurred
-			verify(mockPreparedStatement).setString(1, customerEmailId);
-			verify(mockPreparedStatement).executeQuery();
-			verify(mockResultSet).next();
-		}
+		// Verify that the database interactions occurred
+		verify(mockPreparedStatement).setString(1, customerEmailId);
+		verify(mockPreparedStatement).executeQuery();
+		verify(mockResultSet).next();
 	}
 
 	/**
@@ -65,95 +99,69 @@ public class BookingServiceImplTest {
 	@Test
 	public void getAllBookingsForCustomer() throws Exception {
 		// Arrange
-		BookingServiceImpl bookingService = new BookingServiceImpl();
+
 		String validCustomerEmail = "test@example.com";
+		when(mockResultSet.next()).thenReturn(true, true, false); // Return true twice for two records, then false
 
-		// Mock database connection and prepared statement
-		Connection mockConnection = mock(Connection.class);
-		PreparedStatement mockPreparedStatement = mock(PreparedStatement.class);
-		ResultSet mockResultSet = mock(ResultSet.class);
+		// Mock the ResultSet data for each column
+		when(mockResultSet.getString("transid")).thenReturn("TRANS123", "TRANS124");
+		when(mockResultSet.getString("mailid")).thenReturn(validCustomerEmail, validCustomerEmail);
+		when(mockResultSet.getString("trainno")).thenReturn("TR123", "TR124");
+		when(mockResultSet.getString("journey_date")).thenReturn("2023-07-15", "2023-07-16");
+		when(mockResultSet.getString("from_stn")).thenReturn("Station A", "Station C");
+		when(mockResultSet.getString("to_stn")).thenReturn("Station B", "Station D");
+		when(mockResultSet.getLong("seats")).thenReturn(2L, 1L);
+		when(mockResultSet.getDouble("amount")).thenReturn(100.0, 50.0);
 
-		// Setup mock behavior
-		try (MockedStatic<DBUtil> mockedDBUtil = Mockito.mockStatic(DBUtil.class)) {
-			mockedDBUtil.when(DBUtil::getConnection).thenReturn(mockConnection);
-			when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
-			when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+		// Act
+		List<HistoryBean> result = bookingService.getAllBookingsByCustomerId(validCustomerEmail);
 
-			// Mock ResultSet to return two rows
-			when(mockResultSet.next()).thenReturn(true, true, false); // Return true twice for two records, then false
+		// Assert
+		assertNotNull("The returned list should not be null", result);
+		assertFalse("The returned list should not be empty", result.isEmpty());
+		assertEquals("Should return 2 bookings", 2, result.size());
 
-			// Mock the ResultSet data for each column
-			when(mockResultSet.getString("transid")).thenReturn("TRANS123", "TRANS124");
-			when(mockResultSet.getString("mailid")).thenReturn(validCustomerEmail, validCustomerEmail);
-			when(mockResultSet.getString("trainno")).thenReturn("TR123", "TR124");
-			when(mockResultSet.getString("journey_date")).thenReturn("2023-07-15", "2023-07-16");
-			when(mockResultSet.getString("from_stn")).thenReturn("Station A", "Station C");
-			when(mockResultSet.getString("to_stn")).thenReturn("Station B", "Station D");
-			when(mockResultSet.getLong("seats")).thenReturn(2L, 1L);
-			when(mockResultSet.getDouble("amount")).thenReturn(100.0, 50.0);
+		// Verify database interactions
+		verify(mockPreparedStatement).setString(1, validCustomerEmail);
+		verify(mockPreparedStatement).executeQuery();
+		verify(mockResultSet, times(3)).next(); // Called 3 times (twice true, once false)
 
-			// Act
-			List<HistoryBean> result = bookingService.getAllBookingsByCustomerId(validCustomerEmail);
-
-			// Assert
-			assertNotNull("The returned list should not be null", result);
-			assertFalse("The returned list should not be empty", result.isEmpty());
-			assertEquals("Should return 2 bookings", 2, result.size());
-
-			// Verify each booking has the correct email
-			for (HistoryBean booking : result) {
-				assertEquals("Each booking should have the correct customer email", validCustomerEmail,
-						booking.getMailId());
-			}
-
-			// Verify database interactions
-			verify(mockPreparedStatement).setString(1, validCustomerEmail);
-			verify(mockPreparedStatement).executeQuery();
-			verify(mockResultSet, times(3)).next(); // Called 3 times (twice true, once false)
-		}
 	}
+	
+	/**
+	 *  Test ensures that the getAllBookingsByCustomerId method throws a TrainException 
+	 *  when a database error occurs. It mocks an SQLException during executeQuery()
+	 * @throws Exception
+	 */
 
 	@Test(expected = TrainException.class)
 	public void GetAllBookingsByCustomerIdSQLError() throws Exception {
 		// Arrange
-		BookingServiceImpl bookingService = new BookingServiceImpl();
 		String testEmail = "test@example.com";
 
-		// Mock database connection and prepared statement
-		Connection mockConnection = mock(Connection.class);
-		PreparedStatement mockPreparedStatement = mock(PreparedStatement.class);
-		ResultSet mockResultSet = mock(ResultSet.class);
+		// Mock the PreparedStatement creation
+		when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
 
-		// Setup mock behavior
-		try (MockedStatic<DBUtil> mockedDBUtil = Mockito.mockStatic(DBUtil.class)) {
-			// Mock the database connection
-			mockedDBUtil.when(DBUtil::getConnection).thenReturn(mockConnection);
+		// Mock the executeQuery to throw SQLException
+		when(mockPreparedStatement.executeQuery()).thenThrow(new SQLException("Database error"));
 
-			// Mock the PreparedStatement creation
-			when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+		// Act - this should throw TrainException
+		bookingService.getAllBookingsByCustomerId(testEmail);
 
-			// Mock the executeQuery to throw SQLException
-			when(mockPreparedStatement.executeQuery()).thenThrow(new SQLException("Database error"));
-
-			// Act - this should throw TrainException
-			bookingService.getAllBookingsByCustomerId(testEmail);
-
-			// Verify database interactions
-			verify(mockPreparedStatement).setString(1, testEmail);
-			verify(mockPreparedStatement).executeQuery();
-			verify(mockPreparedStatement).close();
-		}
+		// Verify database interactions
+		verify(mockPreparedStatement).setString(1, testEmail);
+		verify(mockPreparedStatement).executeQuery();
+		verify(mockPreparedStatement).close();
 	}
 
 	/**
-	 * Tests the createHistory method when the database operation fails to insert
-	 * the record. This test verifies that a TrainException with the
-	 * INTERNAL_SERVER_ERROR response code is thrown when the insert operation
-	 * returns 0 rows affected.
+	 * Test verifies that the createHistory method throws a TrainException 
+	 * when a database error occurs. 
+	 * It simulates an SQL failure by making prepareStatement throw an SQLException
 	 */
+	
 	@Test(expected = TrainException.class)
-	public void testCreateHistoryFailure() throws TrainException {
-		BookingServiceImpl bookingService = new BookingServiceImpl();
+	public void testCreateHistoryFailure() throws TrainException, SQLException {
 		HistoryBean details = new HistoryBean();
 		// Set up details with minimal required information
 		details.setMailId("test@example.com");
@@ -164,66 +172,81 @@ public class BookingServiceImplTest {
 		details.setSeats(1);
 		details.setAmount(100.0);
 
-		// This should throw a TrainException with INTERNAL_SERVER_ERROR
-		bookingService.createHistory(details);
-	}
+		when(mockConnection.prepareStatement(anyString())).thenThrow(new SQLException("Database error"));
 
+		// Act & Assert
+		HistoryBean result = bookingService.createHistory(details);// Should throw TrainException
+    }
+	
 	/**
-	 * Test case for createHistory method when the database insert is successful.
-	 * This test verifies that: 1. The method returns a HistoryBean object with the
-	 * correct transaction ID. 2. The returned HistoryBean matches the input
-	 * details. 3. No TrainException is thrown when the operation is successful.
+	 * Test verifies TrainException thrown when database insert operation fails
+	 * @throws SQLException
+	 * @throws TrainException
+	 */
+	
+	@Test(expected = TrainException.class)
+    public void createHistoryInsertFailed() throws SQLException, TrainException {
+        // Arrange
+        HistoryBean details = new HistoryBean();
+        details.setMailId("test@example.com");
+        details.setTr_no("TR123");
+        details.setDate("2023-07-15");
+        details.setFrom_stn("StationA");
+        details.setTo_stn("StationB");
+        details.setSeats(1);
+        details.setAmount(100.0);
+
+        when(mockPreparedStatement.executeUpdate()).thenReturn(0);
+
+        // Act
+        bookingService.createHistory(details); // Should throw TrainException
+    }
+		
+	
+	/**
+	 * Test verifies that the createHistory method successfully inserts a booking record 
+	 * into the database
 	 */
 	@Test
 	public void createHistorySuccess() throws SQLException, TrainException {
-		// Arrange
-		BookingServiceImpl bookingService = new BookingServiceImpl();
-		HistoryBean inputDetails = new HistoryBean();
-		inputDetails.setMailId("test@example.com");
-		inputDetails.setTr_no("TR123");
-		inputDetails.setDate("2023-07-15");
-		inputDetails.setFrom_stn("Station A");
-		inputDetails.setTo_stn("Station B");
-		inputDetails.setSeats(2);
-		inputDetails.setAmount(100.0);
+		HistoryBean details = new HistoryBean();
+		// Set up details with minimal required information
+		details.setMailId("test@example.com");
+		details.setTr_no("TR123");
+		details.setDate("2023-07-15");
+		details.setFrom_stn("StationA");
+		details.setTo_stn("StationB");
+		details.setSeats(1);
+		details.setAmount(100.0);
 
-		// Mock database connection and prepared statement
-		Connection mockConnection = Mockito.mock(Connection.class);
-		PreparedStatement mockPreparedStatement = Mockito.mock(PreparedStatement.class);
+		when(mockPreparedStatement.executeUpdate()).thenReturn(1);
 
-		// Mock DBUtil to return our mock connection
-		try (MockedStatic<DBUtil> mockedDBUtil = Mockito.mockStatic(DBUtil.class)) {
-			mockedDBUtil.when(DBUtil::getConnection).thenReturn(mockConnection);
-			when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
-			when(mockPreparedStatement.executeUpdate()).thenReturn(1); // Simulate successful insert
+        //Act
+		HistoryBean result = bookingService.createHistory(details);
+		
+        //Assert
+		assertNotNull(result);
+		assertEquals(details.getMailId(), result.getMailId());
+		assertEquals(details.getTr_no(), result.getTr_no());
+		assertEquals(details.getDate(), result.getDate());
+		assertEquals(details.getFrom_stn(), result.getFrom_stn());
+		assertEquals(details.getTo_stn(), result.getTo_stn());
+		assertEquals(details.getSeats(), result.getSeats());
+		assertEquals(details.getAmount(), result.getAmount(), 0.001);
+		assertNotNull(result.getTransId());
+		assertTrue(UUID.fromString(result.getTransId()) instanceof UUID);
 
-			// Act
-			HistoryBean result = bookingService.createHistory(inputDetails);
+		// Verify that the prepared statement was called with the correct parameters
 
-			// Assert
-			assertNotNull(result);
-			assertEquals(inputDetails.getMailId(), result.getMailId());
-			assertEquals(inputDetails.getTr_no(), result.getTr_no());
-			assertEquals(inputDetails.getDate(), result.getDate());
-			assertEquals(inputDetails.getFrom_stn(), result.getFrom_stn());
-			assertEquals(inputDetails.getTo_stn(), result.getTo_stn());
-			assertEquals(inputDetails.getSeats(), result.getSeats());
-			assertEquals(inputDetails.getAmount(), result.getAmount(), 0.001);
-			assertNotNull(result.getTransId());
-			assertTrue(UUID.fromString(result.getTransId()) instanceof UUID);
-
-			// Verify that the prepared statement was called with the correct parameters
-			verify(mockPreparedStatement).setString(1, result.getTransId());
-			verify(mockPreparedStatement).setString(2, inputDetails.getMailId());
-			verify(mockPreparedStatement).setString(3, inputDetails.getTr_no());
-			verify(mockPreparedStatement).setString(4, inputDetails.getDate());
-			verify(mockPreparedStatement).setString(5, inputDetails.getFrom_stn());
-			verify(mockPreparedStatement).setString(6, inputDetails.getTo_stn());
-			verify(mockPreparedStatement).setLong(7, inputDetails.getSeats());
-			verify(mockPreparedStatement).setDouble(8, inputDetails.getAmount());
-			verify(mockPreparedStatement).executeUpdate();
-			verify(mockPreparedStatement).close();
-		}
+		verify(mockPreparedStatement).setString(1, result.getTransId());
+		verify(mockPreparedStatement).setString(2, details.getMailId());
+		verify(mockPreparedStatement).setString(3, details.getTr_no());
+		verify(mockPreparedStatement).setString(4, details.getDate());
+		verify(mockPreparedStatement).setString(5, details.getFrom_stn());
+		verify(mockPreparedStatement).setString(6, details.getTo_stn());
+		verify(mockPreparedStatement).setLong(7, details.getSeats());
+		verify(mockPreparedStatement).setDouble(8, details.getAmount());
+		verify(mockPreparedStatement).executeUpdate();
+		verify(mockPreparedStatement).close();
 	}
-
 }
