@@ -198,6 +198,58 @@ public class TrainServiceImplTest {
 		assertEquals(2, result.size());
 	}
 
+	
+	/**
+	 * Tests getAllTrains method when a SQLException occurs during database operation.
+	 * This test verifies that the method throws a TrainException with the appropriate
+	 * error details including error code, status code, and message.
+	 */
+	@Test
+	public void getAllTrainsWhenDatabaseError() throws Exception {
+	    // Arrange
+	    String errorMessage = "Database connection failed";
+	    when(mockConnection.prepareStatement(anyString()))
+	        .thenThrow(new SQLException(errorMessage));
+
+	    // Act & Assert
+	    TrainException thrown = assertThrows(TrainException.class, () -> {
+	        trainService.getAllTrains();
+	    });
+
+	    // Verify exception details
+	    assertEquals(errorMessage, thrown.getMessage());
+	    assertEquals("BAD_REQUEST", thrown.getErrorCode());
+	    assertEquals(400, thrown.getStatusCode());
+
+	    // Verify interactions
+	    verify(mockConnection).prepareStatement("SELECT * FROM TRAIN");
+	}
+
+	/**
+	 * Tests getAllTrains method when database operation fails with SQLException.
+	 * This test verifies that the method properly converts SQLException to TrainException.
+	 */
+	@Test
+	public void getAllTrainsWhenSQLExceptionHandling() throws Exception {
+	    // Arrange
+	    when(mockConnection.prepareStatement(anyString()))
+	        .thenThrow(new SQLException("Database error"));
+
+	    // Act & Assert
+	    TrainException thrown = assertThrows(TrainException.class, () -> {
+	        trainService.getAllTrains();
+	    });
+
+	    // Verify exception message
+	    assertEquals("Database error", thrown.getMessage());
+	    assertEquals("BAD_REQUEST", thrown.getErrorCode());
+
+	    // Verify interactions
+	    verify(mockConnection).prepareStatement("SELECT * FROM TRAIN");
+	}
+	
+	
+	
 	/**
 	 * Verifies successful retrieval of trains between specified stations (Mumbai to
 	 * Delhi). Test ensures correct query execution, data mapping, and validates
@@ -205,28 +257,146 @@ public class TrainServiceImplTest {
 	 */
 
 	@Test
-	public void getTrainsBetweenStationsSuccessfully() throws Exception {
-		// Arrange
-		TrainBean train = new TrainBean();
-		train.setTr_no(12345L);
-		train.setTr_name("Test Train");
-		train.setFrom_stn("Start Station");
-		train.setTo_stn("End Station");
-		train.setSeats(100);
-		train.setFare(50.0);
+	public void getTrainsBetweenStationsSuccessful() throws Exception {
+	    // Arrange
+	    String fromStation = "Mumbai";
+	    String toStation = "Delhi";
+	    
+	    when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+	    when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+	    // Mock two trains in result set
+	    when(mockResultSet.next()).thenReturn(true, true, false);
+	    when(mockResultSet.getDouble("fare")).thenReturn(1000.0, 1200.0);
+	    when(mockResultSet.getString("from_stn")).thenReturn("Mumbai Central", "Mumbai CST");
+	    when(mockResultSet.getString("to_stn")).thenReturn("New Delhi", "Delhi Cantt");
+	    when(mockResultSet.getString("tr_name")).thenReturn("Rajdhani Express", "Duronto Express");
+	    when(mockResultSet.getLong("tr_no")).thenReturn(12345L, 12346L);
+	    when(mockResultSet.getInt("seats")).thenReturn(500, 450);
 
-		when(mockResultSet.next()).thenReturn(true);
+	    // Act
+	    List<TrainBean> result = trainService.getTrainsBetweenStations(fromStation, toStation);
 
-		// Act
-		String result = trainService.addTrain(train);
+	    // Assert
+	    assertNotNull(result);
+	    assertEquals(2, result.size());
+	    
+	    // Verify first train
+	    TrainBean firstTrain = result.get(0);
+	    assertEquals("Rajdhani Express", firstTrain.getTr_name());
+	    assertEquals("Mumbai Central", firstTrain.getFrom_stn());
+	    assertEquals("New Delhi", firstTrain.getTo_stn());
+	    assertEquals(Double.valueOf(1000.0), firstTrain.getFare());
+	    assertEquals(Integer.valueOf(500), firstTrain.getSeats());
+	    assertEquals(Long.valueOf(12345L), firstTrain.getTr_no());
 
-		// Assert
-		assertEquals(ResponseCode.SUCCESS.toString(), result);
-
-		// Verify interactions
-		verify(mockPreparedStatement).executeQuery();
-
+	    // Verify second train
+	    TrainBean secondTrain = result.get(1);
+	    assertEquals("Duronto Express", secondTrain.getTr_name());
+	    
+	    // Verify interactions
+	    verify(mockPreparedStatement).setString(1, "%Mumbai%");
+	    verify(mockPreparedStatement).setString(2, "%Delhi%");
+	    verify(mockPreparedStatement).executeQuery();
+	    verify(mockPreparedStatement).close();
 	}
+
+	
+	@Test
+	public void getTrainsBetweenStationsWhenNoTrainsFound() throws Exception {
+	    // Arrange
+	    String fromStation = "Invalid";
+	    String toStation = "Station";
+	    
+	    when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+	    when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+	    when(mockResultSet.next()).thenReturn(false);
+
+	    // Act
+	    List<TrainBean> result = trainService.getTrainsBetweenStations(fromStation, toStation);
+
+	    // Assert
+	    assertNotNull(result);
+	    assertTrue(result.isEmpty());
+
+	    // Verify interactions
+	    verify(mockPreparedStatement).setString(1, "%Invalid%");
+	    verify(mockPreparedStatement).setString(2, "%Station%");
+	    verify(mockPreparedStatement).executeQuery();
+	    verify(mockPreparedStatement).close();
+	}
+
+	@Test
+	public void getTrainsBetweenStationsWithNullParameters() throws Exception {
+	    // Arrange
+	    String fromStation = null;
+	    String toStation = null;
+	    
+	    when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+	    when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+	    when(mockResultSet.next()).thenReturn(false);
+
+	    // Act
+	    List<TrainBean> result = trainService.getTrainsBetweenStations(fromStation, toStation);
+
+	    // Assert
+	    assertNotNull(result);
+	    assertTrue(result.isEmpty());
+
+	    // Verify interactions
+	    verify(mockPreparedStatement).setString(1, "%null%");
+	    verify(mockPreparedStatement).setString(2, "%null%");
+	    verify(mockPreparedStatement).executeQuery();
+	    verify(mockPreparedStatement).close();
+	}
+
+	@Test
+	public void getTrainsBetweenStationsWhenDatabaseError() throws Exception {
+	    // Arrange
+	    String fromStation = "Mumbai";
+	    String toStation = "Delhi";
+	    String errorMessage = "Database connection failed";
+	    
+	    when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+	    when(mockPreparedStatement.executeQuery()).thenThrow(new SQLException(errorMessage));
+
+	    try {
+	        // Act
+	        trainService.getTrainsBetweenStations(fromStation, toStation);
+	        fail("Expected TrainException was not thrown");
+	    } catch (TrainException e) {
+	        // Assert
+	        assertEquals(errorMessage, e.getErrorMessage());
+	        assertEquals("BAD_REQUEST", e.getErrorCode());
+	        assertEquals(400, e.getStatusCode());
+	    }
+
+	    // Verify interactions
+	    verify(mockPreparedStatement).setString(1, "%Mumbai%");
+	    verify(mockPreparedStatement).setString(2, "%Delhi%");
+	    verify(mockPreparedStatement).executeQuery();
+	}
+
+	@Test
+	public void getTrainsBetweenStationsWhenConnectionError() throws Exception {
+	    // Arrange
+	    String fromStation = "Mumbai";
+	    String toStation = "Delhi";
+	    String errorMessage = "Unable to establish connection";
+	    
+	    when(DBUtil.getConnection()).thenThrow(new TrainException(errorMessage));
+
+	    try {
+	        // Act
+	        trainService.getTrainsBetweenStations(fromStation, toStation);
+	        fail("Expected TrainException was not thrown");
+	    } catch (TrainException e) {
+	        // Assert
+	        assertEquals(errorMessage, e.getErrorMessage());
+	        assertEquals("BAD_REQUEST", e.getErrorCode());
+	        assertEquals(400, e.getStatusCode());
+	    }
+	}
+	
 
 	/**
 	 * Test case for addTrain method when a new train is successfully added. This
@@ -309,36 +479,42 @@ public class TrainServiceImplTest {
 	}
 
 	/**
-	 * Test case to verify that passing a null TrainBean to addTrain() throws a
-	 * NullPointerException.
+	 * Test case for addTrain method when database operation is executed 
+	 * but no rows are affected. This test verifies that the method returns 
+	 * FAILURE response code when ResultSet.next() returns false.
 	 */
-	
-	/*
-	 * Log a bug in TrainServiceImpl.addTrain().
-       Describe that passing null causes an unhandled NullPointerException instead of TrainException.
-	 */
+	@Test
+	public void addTrainWhenNoRowsAffected() throws Exception {
+	    // Arrange
+	    TrainBean train = new TrainBean();
+	    train.setTr_no(12345L);
+	    train.setTr_name("Test Train");
+	    train.setFrom_stn("Start Station");
+	    train.setTo_stn("End Station");
+	    train.setSeats(100);
+	    train.setFare(50.0);
 
-	/*@Test
-	public void addTrainWithNullTrain() throws Exception {
-		
-		 
-		//Act & Assert
-		NullPointerException thrown = assertThrows(NullPointerException.class, () -> {
-			trainService.addTrain(null);
-		});
+	    // Mock ResultSet to return false for next()
+	    when(mockResultSet.next()).thenReturn(false);
 
-		Verify exception message (optional, depends on implementation)
-		//assertNotNull(thrown.getMessage()); */
-	//------------------------------------------------------------
-	/*	// Act & Assert
-	    TrainException thrown = assertThrows(TrainException.class, () -> {
-	        trainService.addTrain(null);
-	    });
+	    // Act
+	    String result = trainService.addTrain(train);
 
-	    // Verify exception message (if applicable)
-	    assertNotNull(thrown.getMessage());
+	    // Assert
+	    assertEquals(ResponseCode.FAILURE.toString(), result);
 
-	}*/
+	    // Verify interactions
+	    verify(mockPreparedStatement).setLong(1, train.getTr_no());
+	    verify(mockPreparedStatement).setString(2, train.getTr_name());
+	    verify(mockPreparedStatement).setString(3, train.getFrom_stn());
+	    verify(mockPreparedStatement).setString(4, train.getTo_stn());
+	    verify(mockPreparedStatement).setLong(5, train.getSeats());
+	    verify(mockPreparedStatement).setDouble(6, train.getFare());
+	    verify(mockPreparedStatement).executeQuery();
+	    verify(mockPreparedStatement).close();
+	    verify(mockResultSet).next();
+	}
+
 
 	/**
 	 * Verifies that a train can be successfully deleted from the database by its ID
@@ -366,6 +542,64 @@ public class TrainServiceImplTest {
 		verify(mockPreparedStatement).close();
 	}
 
+	@Test
+	public void deleteTrainById_WhenSQLException() throws Exception {
+	    // Arrange
+	    String trainNo = "12345";
+	    String errorMessage = "Database error occurred";
+	    when(mockConnection.prepareStatement(anyString()))
+	        .thenThrow(new SQLException(errorMessage));
+
+	    // Act
+	    String result = trainService.deleteTrainById(trainNo);
+
+	    // Assert
+	    assertEquals(ResponseCode.FAILURE.toString() + " : " + errorMessage, result);
+	    verify(mockConnection).prepareStatement("DELETE FROM TRAIN WHERE TR_NO=?");
+	}
+
+	@Test
+	public void deleteTrainById_WhenTrainException() throws Exception {
+	    // Arrange
+	    String trainNo = "12345";
+	    String errorMessage = "Connection failed";
+	    when(DBUtil.getConnection())
+	        .thenThrow(new TrainException(errorMessage));
+
+	    // Act
+	    String result = trainService.deleteTrainById(trainNo);
+
+	    // Assert
+	    assertEquals(ResponseCode.FAILURE.toString() + " : " + errorMessage, result);
+	}
+	
+	/**
+	 * Test case for deleteTrainById method when train ID doesn't exist.
+	 * This test verifies that the method returns FAILURE response code 
+	 * when no rows are affected by the delete operation.
+	 */
+	@Test
+	public void deleteTrainByIdWhenTrainNotFound() throws Exception {
+	    // Arrange
+	    String trainNo = "12345";
+	    
+	    // Mock executeUpdate to return 0 (no rows affected)
+	    when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+	    when(mockPreparedStatement.executeUpdate()).thenReturn(0);
+
+	    // Act
+	    String result = trainService.deleteTrainById(trainNo);
+
+	    // Assert
+	    assertEquals(ResponseCode.FAILURE.toString(), result);
+
+	    // Verify interactions
+	    verify(mockConnection).prepareStatement("DELETE FROM TRAIN WHERE TR_NO=?");
+	    verify(mockPreparedStatement).setString(1, trainNo);
+	    verify(mockPreparedStatement).executeUpdate();
+	    verify(mockPreparedStatement).close();
+	}
+	
 	/**
 	 * Verifies that a train's details can be successfully updated in the database
 	 * and returns SUCCESS response. Test ensures proper database interaction with
@@ -403,4 +637,90 @@ public class TrainServiceImplTest {
 		verify(mockPreparedStatement).executeQuery();
 		verify(mockPreparedStatement).close();
 	}
+	
+	@Test
+	public void updateTrain_WhenSQLException() throws Exception {
+	    // Arrange
+	    TrainBean train = new TrainBean();
+	    train.setTr_no(12345L);
+	    train.setTr_name("Test Train");
+	    train.setFrom_stn("Station A");
+	    train.setTo_stn("Station B");
+	    train.setSeats(100);
+	    train.setFare(500.0);
+
+	    String errorMessage = "Database error occurred";
+	    when(mockConnection.prepareStatement(anyString()))
+	        .thenThrow(new SQLException(errorMessage));
+
+	    // Act
+	    String result = trainService.updateTrain(train);
+
+	    // Assert
+	    assertEquals(ResponseCode.FAILURE.toString() + " : " + errorMessage, result);
+	    verify(mockConnection).prepareStatement(
+	        "UPDATE TRAIN SET TR_NAME=?, FROM_STN=?,TO_STN=?,SEATS=?,FARE=? WHERE TR_NO=?");
+	}
+
+	@Test
+	public void updateTrain_WhenTrainException() throws Exception {
+	    // Arrange
+	    TrainBean train = new TrainBean();
+	    train.setTr_no(12345L);
+	    train.setTr_name("Test Train");
+	    train.setFrom_stn("Station A");
+	    train.setTo_stn("Station B");
+	    train.setSeats(100);
+	    train.setFare(500.0);
+
+	    String errorMessage = "Connection failed";
+	    when(DBUtil.getConnection())
+	        .thenThrow(new TrainException(errorMessage));
+
+	    // Act
+	    String result = trainService.updateTrain(train);
+
+	    // Assert
+	    assertEquals(ResponseCode.FAILURE.toString() + " : " + errorMessage, result);
+	}
+	
+	/**
+	 * Test case for updateTrain method when train is not found in database.
+	 * This test verifies that the method returns FAILURE response code 
+	 * when ResultSet.next() returns false.
+	 */
+	@Test
+	public void updateTrainWhenTrainNotFound() throws Exception {
+	    // Arrange
+	    TrainBean train = new TrainBean();
+	    train.setTr_no(12345L);
+	    train.setTr_name("Updated Train");
+	    train.setFrom_stn("New Start");
+	    train.setTo_stn("New End");
+	    train.setSeats(200);
+	    train.setFare(75.0);
+
+	    when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+	    when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+	    when(mockResultSet.next()).thenReturn(false);
+
+	    // Act
+	    String result = trainService.updateTrain(train);
+
+	    // Assert
+	    assertEquals(ResponseCode.FAILURE.toString(), result);
+
+	    // Verify interactions
+	    verify(mockPreparedStatement).setString(1, train.getTr_name());
+	    verify(mockPreparedStatement).setString(2, train.getFrom_stn());
+	    verify(mockPreparedStatement).setString(3, train.getTo_stn());
+	    verify(mockPreparedStatement).setLong(4, train.getSeats());
+	    verify(mockPreparedStatement).setDouble(5, train.getFare());
+	    verify(mockPreparedStatement).setDouble(6, train.getTr_no());
+	    verify(mockPreparedStatement).executeQuery();
+	    verify(mockPreparedStatement).close();
+	    verify(mockResultSet).next();
+	}
 }
+
+

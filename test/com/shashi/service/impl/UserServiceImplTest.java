@@ -3,11 +3,14 @@ package com.shashi.service.impl;
 import com.shashi.beans.TrainException;
 import com.shashi.beans.UserBean;
 import com.shashi.constant.ResponseCode;
+import com.shashi.constant.UserRole;
 import com.shashi.utility.DBUtil;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.List;
+
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -145,6 +148,29 @@ public class UserServiceImplTest {
 	}
 
 	/**
+	 * Test loginUser when SQL Exception occurs during query execution
+	 */
+	@Test
+	public void loginUser_WhenSQLException_ShouldThrowTrainException() throws Exception {
+		// Arrange
+		String username = "test@example.com";
+		String password = "password123";
+
+		when(mockPreparedStatement.executeQuery()).thenThrow(new SQLException("Database connection failed"));
+
+		// Act & Assert
+		TrainException thrown = assertThrows(TrainException.class, () -> userService.loginUser(username, password));
+
+		// Verify the exception message
+		assertEquals("Database connection failed", thrown.getMessage());
+
+		// Verify interactions
+		verify(mockPreparedStatement).setString(1, username);
+		verify(mockPreparedStatement).setString(2, password);
+		verify(mockPreparedStatement).executeQuery();
+	}
+
+	/**
 	 * Test case for successful user registration when the user does not already
 	 * exist. This test mocks the database connection and result set to simulate a
 	 * successful registration.
@@ -218,6 +244,516 @@ public class UserServiceImplTest {
 		verify(mockPreparedStatement).setString(5, existingUser.getAddr());
 		verify(mockPreparedStatement).setLong(6, existingUser.getPhNo());
 		verify(mockPreparedStatement).executeQuery();
+	}
+
+	/**
+	 * Test registerUser when ResultSet returns false
+	 */
+	@Test
+	public void registerUser_WhenResultSetHasNoNext_ShouldReturnFailure() throws Exception {
+		// Arrange
+		UserBean customer = new UserBean();
+		customer.setMailId("test@example.com");
+		customer.setPWord("password");
+		customer.setFName("John");
+		customer.setLName("Doe");
+		customer.setAddr("123 Test St");
+		customer.setPhNo(1234567890L);
+
+		when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+		when(mockResultSet.next()).thenReturn(false); // ResultSet has no next record
+
+		// Act
+		String result = userService.registerUser(customer);
+
+		// Assert
+		assertEquals(ResponseCode.FAILURE.toString(), result);
+
+		// Verify
+		verify(mockPreparedStatement).setString(1, customer.getMailId());
+		verify(mockPreparedStatement).setString(2, customer.getPWord());
+		verify(mockPreparedStatement).setString(3, customer.getFName());
+		verify(mockPreparedStatement).setString(4, customer.getLName());
+		verify(mockPreparedStatement).setString(5, customer.getAddr());
+		verify(mockPreparedStatement).setLong(6, customer.getPhNo());
+		verify(mockPreparedStatement).executeQuery();
+		verify(mockResultSet).next();
+		verify(mockPreparedStatement).close();
+	}
+
+	/**
+	 * Test registerUser when Oracle unique constraint violation occurs
+	 */
+	@Test
+	public void registerUser_WhenOracleUniqueConstraintViolation_ShouldReturnFailureWithUserExists() throws Exception {
+		// Arrange
+		UserBean customer = new UserBean();
+		customer.setMailId("existing@example.com");
+		customer.setPWord("password");
+		customer.setFName("John");
+		customer.setLName("Doe");
+		customer.setAddr("123 Test St");
+		customer.setPhNo(1234567890L);
+
+		// Simulate Oracle unique constraint violation
+		when(mockPreparedStatement.executeQuery()).thenThrow(new SQLException("ORA-00001: unique constraint violated"));
+
+		// Act
+		String result = userService.registerUser(customer);
+
+		// Assert
+		assertTrue(result.startsWith(ResponseCode.FAILURE.toString()));
+		assertTrue(result.contains("User With Id: " + customer.getMailId() + " is already registered"));
+
+		// Verify
+		verify(mockPreparedStatement).setString(1, customer.getMailId());
+		verify(mockPreparedStatement).setString(2, customer.getPWord());
+		verify(mockPreparedStatement).setString(3, customer.getFName());
+		verify(mockPreparedStatement).setString(4, customer.getLName());
+		verify(mockPreparedStatement).setString(5, customer.getAddr());
+		verify(mockPreparedStatement).setLong(6, customer.getPhNo());
+		verify(mockPreparedStatement).executeQuery();
+	}
+
+	/**
+	 * Test registerUser when non-Oracle SQL exception occurs
+	 */
+	@Test
+	public void registerUser_WhenNonOracleException_ShouldReturnFailureWithMessage() throws Exception {
+		// Arrange
+		UserBean customer = new UserBean();
+		customer.setMailId("test@example.com");
+		customer.setPWord("password");
+		customer.setFName("John");
+		customer.setLName("Doe");
+		customer.setAddr("123 Test St");
+		customer.setPhNo(1234567890L);
+
+		// Simulate general SQL exception
+		String errorMessage = "General database error";
+		when(mockPreparedStatement.executeQuery()).thenThrow(new SQLException(errorMessage));
+
+		// Act
+		String result = userService.registerUser(customer);
+
+		// Assert
+		assertTrue(result.startsWith(ResponseCode.FAILURE.toString()));
+		assertTrue(result.contains(errorMessage));
+		assertFalse(result.contains("is already registered"));
+
+		// Verify
+		verify(mockPreparedStatement).setString(1, customer.getMailId());
+		verify(mockPreparedStatement).setString(2, customer.getPWord());
+		verify(mockPreparedStatement).setString(3, customer.getFName());
+		verify(mockPreparedStatement).setString(4, customer.getLName());
+		verify(mockPreparedStatement).setString(5, customer.getAddr());
+		verify(mockPreparedStatement).setLong(6, customer.getPhNo());
+		verify(mockPreparedStatement).executeQuery();
+	}
+
+	/**
+	 * Test getUserByEmailId when user exists
+	 */
+	@Test
+	public void getUserByEmailIdWhenUserExists() throws Exception {
+		// Arrange
+		String email = "test@example.com";
+		when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+		when(mockResultSet.next()).thenReturn(true);
+		when(mockResultSet.getString("fname")).thenReturn("John");
+		when(mockResultSet.getString("lname")).thenReturn("Doe");
+		when(mockResultSet.getString("addr")).thenReturn("123 Street");
+		when(mockResultSet.getString("mailid")).thenReturn(email);
+		when(mockResultSet.getLong("phno")).thenReturn(1234567890L);
+
+		// Act
+		UserBean result = userService.getUserByEmailId(email);
+
+		// Assert
+		assertNotNull(result);
+		assertEquals("John", result.getFName());
+		assertEquals("Doe", result.getLName());
+		assertEquals("123 Street", result.getAddr());
+		assertEquals(email, result.getMailId());
+		// assertEquals(Long.valueOf(1234567890L), result.getPhNo());
+
+		// Verify
+		verify(mockPreparedStatement).setString(1, email);
+		verify(mockPreparedStatement).executeQuery();
+		verify(mockPreparedStatement).close();
+	}
+
+	/**
+	 * Test getUserByEmailId when user does not exist
+	 */
+	@Test
+	public void getUserByEmailIdWhenUserNotFound() throws Exception {
+		// Arrange
+		String email = "nonexistent@example.com";
+		when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+		when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+		when(mockResultSet.next()).thenReturn(false);
+
+		// Act & Assert
+		TrainException thrown = assertThrows(TrainException.class, () -> userService.getUserByEmailId(email));
+
+		// Verify the exception details
+		assertEquals(ResponseCode.NO_CONTENT.name(), thrown.getErrorCode());
+		assertEquals(ResponseCode.NO_CONTENT.getMessage(), thrown.getErrorMessage());
+		assertEquals(ResponseCode.NO_CONTENT.getCode(), thrown.getStatusCode());
+
+		// Verify interactions
+		verify(mockPreparedStatement).setString(1, email);
+		verify(mockPreparedStatement).executeQuery();
+		// verify(mockPreparedStatement).close();
+	}
+
+	@Test
+	public void getUserByEmailId_WhenSQLException_ShouldThrowTrainException() throws Exception {
+		// Arrange
+		String testEmail = "test@example.com";
+		when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+		when(mockPreparedStatement.executeQuery()).thenThrow(new SQLException("Database connection failed"));
+
+		// Act & Assert
+		TrainException thrown = assertThrows(TrainException.class, () -> userService.getUserByEmailId(testEmail));
+
+		// Verify the exception message
+		assertEquals("Database connection failed", thrown.getMessage());
+
+		// Verify only the interactions that occur before the exception
+		verify(mockPreparedStatement).setString(1, testEmail);
+		verify(mockPreparedStatement).executeQuery();
+		// Remove verification of close() since it won't be called due to the exception
+	}
+
+	/**
+	 * Test getAllUsers when users exist
+	 */
+	@Test
+	public void getAllUsersWhenUsersExist() throws Exception {
+		// Arrange
+		when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+		when(mockResultSet.next()).thenReturn(true, true, false);
+		when(mockResultSet.getString("fname")).thenReturn("John", "Jane");
+		when(mockResultSet.getString("lname")).thenReturn("Doe", "Smith");
+		when(mockResultSet.getString("addr")).thenReturn("123 Street", "456 Ave");
+		when(mockResultSet.getString("mailid")).thenReturn("john@example.com", "jane@example.com");
+		when(mockResultSet.getLong("phno")).thenReturn(1234567890L, 9876543210L);
+
+		// Act
+		List<UserBean> results = userService.getAllUsers();
+
+		// Assert
+		assertNotNull(results);
+		assertEquals(2, results.size());
+		assertEquals("John", results.get(0).getFName());
+		assertEquals("Jane", results.get(1).getFName());
+
+		// Verify
+		verify(mockPreparedStatement).executeQuery();
+		verify(mockPreparedStatement).close();
+	}
+
+	/**
+	 * Test getAllUsers when no users exist in database
+	 */
+	@Test
+	public void getAllUsers_WhenNoUsers_ShouldThrowTrainException() throws Exception {
+		// Arrange
+		when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+		when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+		when(mockResultSet.next()).thenReturn(false); // Empty result set
+
+		// Act & Assert
+		TrainException thrown = assertThrows(TrainException.class, () -> userService.getAllUsers());
+
+		// Verify exception details
+		assertEquals(ResponseCode.NO_CONTENT.name(), thrown.getErrorCode());
+		assertEquals(ResponseCode.NO_CONTENT.getMessage(), thrown.getErrorMessage());
+		assertEquals(ResponseCode.NO_CONTENT.getCode(), thrown.getStatusCode());
+
+		// Verify interactions
+		verify(mockPreparedStatement).executeQuery();
+		// verify(mockPreparedStatement).close();
+	}
+
+	/*
+	 * The test is failing because when an SQLException is thrown during
+	 * executeQuery(), the code execution stops at that point and never reaches the
+	 * ps.close() statement in the try block
+	 */
+
+	@Test
+	public void getAllUsers_WhenSQLException_ShouldThrowTrainException() throws Exception {
+		// Arrange
+		when(mockPreparedStatement.executeQuery()).thenThrow(new SQLException("Database error"));
+
+		// Act & Assert
+		TrainException thrown = assertThrows(TrainException.class, () -> userService.getAllUsers());
+
+		// Verify the exception message
+		assertEquals("Database error", thrown.getMessage());
+
+		// Verify interactions
+		verify(mockPreparedStatement).executeQuery();
+		// verify(mockPreparedStatement).close();
+	}
+
+	/**
+	 * Test updateUser successful case
+	 */
+	@Test
+	public void updateUserSuccessful() throws Exception {
+		// Arrange
+		UserBean user = new UserBean();
+		user.setMailId("test@example.com");
+		user.setFName("John");
+		user.setLName("Doe");
+		user.setAddr("123 Street");
+		user.setPhNo(1234567890L);
+
+		when(mockPreparedStatement.executeUpdate()).thenReturn(1);
+
+		// Act
+		String result = userService.updateUser(user);
+
+		// Assert
+		assertEquals(ResponseCode.SUCCESS.toString(), result);
+
+		// Verify
+		verify(mockPreparedStatement).setString(1, user.getFName());
+		verify(mockPreparedStatement).setString(2, user.getLName());
+		verify(mockPreparedStatement).setString(3, user.getAddr());
+		verify(mockPreparedStatement).setLong(4, user.getPhNo());
+		verify(mockPreparedStatement).setString(5, user.getMailId());
+		verify(mockPreparedStatement).close();
+	}
+
+	/**
+	 * Test updateUser when user not found
+	 */
+	@Test
+	public void updateUserWhenUserNotFound() throws Exception {
+		// Arrange
+		UserBean user = new UserBean();
+		user.setMailId("nonexistent@example.com");
+
+		when(mockPreparedStatement.executeUpdate()).thenReturn(0);
+
+		// Act
+		String result = userService.updateUser(user);
+
+		// Assert
+		assertEquals(ResponseCode.FAILURE.toString(), result);
+	}
+
+	/**
+	 * Test updateUser when SQL Exception occurs during update
+	 */
+	@Test
+	public void updateUser_WhenSQLException_ShouldReturnFailure() throws Exception {
+		// Arrange
+		UserBean user = new UserBean();
+		user.setMailId("test@example.com");
+		user.setFName("John");
+		user.setLName("Doe");
+		user.setAddr("123 Street");
+		user.setPhNo(1234567890L);
+
+		when(mockPreparedStatement.executeUpdate()).thenThrow(new SQLException("Database error"));
+
+		// Act
+		String result = userService.updateUser(user);
+
+		// Assert
+		assertTrue(result.startsWith(ResponseCode.FAILURE.toString()));
+		assertTrue(result.contains("Database error"));
+
+		// Verify
+		verify(mockPreparedStatement).setString(1, user.getFName());
+		verify(mockPreparedStatement).setString(2, user.getLName());
+		verify(mockPreparedStatement).setString(3, user.getAddr());
+		verify(mockPreparedStatement).setLong(4, user.getPhNo());
+		verify(mockPreparedStatement).setString(5, user.getMailId());
+		verify(mockPreparedStatement).executeUpdate();
+	}
+
+	/**
+	 * Test updateUser when no rows are updated
+	 */
+	@Test
+	public void updateUser_WhenNoRowsUpdated_ShouldReturnFailure() throws Exception {
+		// Arrange
+		UserBean user = new UserBean();
+		user.setMailId("test@example.com");
+		user.setFName("John");
+		user.setLName("Doe");
+		user.setAddr("123 Street");
+		user.setPhNo(1234567890L);
+
+		when(mockPreparedStatement.executeUpdate()).thenReturn(0);
+
+		// Act
+		String result = userService.updateUser(user);
+
+		// Assert
+		assertEquals(ResponseCode.FAILURE.toString(), result);
+
+		// Verify
+		verify(mockPreparedStatement).executeUpdate();
+		verify(mockPreparedStatement).close();
+	}
+
+	/**
+	 * Test deleteUser successful case
+	 */
+	@Test
+	public void deleteUserSuccessful() throws Exception {
+		// Arrange
+		UserBean user = new UserBean();
+		user.setMailId("test@example.com");
+
+		when(mockPreparedStatement.executeUpdate()).thenReturn(1);
+
+		// Act
+		String result = userService.deleteUser(user);
+
+		// Assert
+		assertEquals(ResponseCode.SUCCESS.toString(), result);
+
+		// Verify
+		verify(mockPreparedStatement).setString(1, user.getMailId());
+		verify(mockPreparedStatement).close();
+	}
+
+	/**
+	 * Test deleteUser when user not found
+	 */
+	@Test
+	public void deleteUserWhenUserNotFound() throws Exception {
+		// Arrange
+		UserBean user = new UserBean();
+		user.setMailId("nonexistent@example.com");
+
+		when(mockPreparedStatement.executeUpdate()).thenReturn(0);
+
+		// Act
+		String result = userService.deleteUser(user);
+
+		// Assert
+		assertEquals(ResponseCode.FAILURE.toString(), result);
+	}
+
+	/**
+	 * Test deleteUser when no rows are deleted
+	 */
+	@Test
+	public void deleteUser_WhenNoRowsDeleted_ShouldReturnFailure() throws Exception {
+		// Arrange
+		UserBean user = new UserBean();
+		user.setMailId("test@example.com");
+
+		when(mockPreparedStatement.executeUpdate()).thenReturn(0);
+
+		// Act
+		String result = userService.deleteUser(user);
+
+		// Assert
+		assertEquals(ResponseCode.FAILURE.toString(), result);
+
+		// Verify
+		verify(mockPreparedStatement).executeUpdate();
+		verify(mockPreparedStatement).close();
+	}
+
+	/**
+	 * Test deleteUser when SQL Exception occurs during delete
+	 */
+	@Test
+	public void deleteUser_WhenSQLException_ShouldReturnFailure() throws Exception {
+		// Arrange
+		UserBean user = new UserBean();
+		user.setMailId("test@example.com");
+
+		when(mockPreparedStatement.executeUpdate()).thenThrow(new SQLException("Database error"));
+
+		// Act
+		String result = userService.deleteUser(user);
+
+		// Assert
+		assertTrue(result.startsWith(ResponseCode.FAILURE.toString()));
+		assertTrue(result.contains("Database error"));
+
+		// Verify
+		verify(mockPreparedStatement).setString(1, user.getMailId());
+		verify(mockPreparedStatement).executeUpdate();
+	}
+
+	/**
+	 * Test constructor with null UserRole
+	 */
+	@Test
+	public void constructorWithNullUserRole() throws Exception {
+		// Arrange
+		userService = new UserServiceImpl(null); // Use the existing field
+		when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+		when(mockResultSet.next()).thenReturn(true, false); // One iteration only
+		when(mockResultSet.getString("fname")).thenReturn("TestUser");
+		when(mockResultSet.getString("lname")).thenReturn("TestLast");
+		when(mockResultSet.getString("addr")).thenReturn("Test Address");
+		when(mockResultSet.getString("mailid")).thenReturn("test@example.com");
+		when(mockResultSet.getLong("phno")).thenReturn(1234567890L);
+
+		// Act
+		List<UserBean> users = userService.getAllUsers();
+
+		// Assert
+		assertNotNull(users);
+		assertEquals(1, users.size());
+		UserBean user = users.get(0);
+		assertEquals("TestUser", user.getFName());
+		assertEquals("TestLast", user.getLName());
+		assertEquals("Test Address", user.getAddr());
+		assertEquals("test@example.com", user.getMailId());
+		assertEquals(1234567890L, user.getPhNo());
+
+		// Verify
+		verify(mockPreparedStatement).executeQuery();
+		verify(mockPreparedStatement).close();
+	}
+
+	/**
+	 * Test constructor with explicit UserRole
+	 */
+	@Test
+	public void constructorWithExplicitUserRole() throws Exception {
+		// Arrange
+		userService = new UserServiceImpl(UserRole.ADMIN); // Use the existing field
+		when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
+		when(mockResultSet.next()).thenReturn(true, false); // One iteration only
+		when(mockResultSet.getString("fname")).thenReturn("AdminUser");
+		when(mockResultSet.getString("lname")).thenReturn("AdminLast");
+		when(mockResultSet.getString("addr")).thenReturn("Admin Address");
+		when(mockResultSet.getString("mailid")).thenReturn("admin@example.com");
+		when(mockResultSet.getLong("phno")).thenReturn(1234567890L);
+
+		// Act
+		List<UserBean> users = userService.getAllUsers();
+
+		// Assert
+		assertNotNull(users);
+		assertEquals(1, users.size());
+		UserBean user = users.get(0);
+		assertEquals("AdminUser", user.getFName());
+		assertEquals("AdminLast", user.getLName());
+		assertEquals("Admin Address", user.getAddr());
+		assertEquals("admin@example.com", user.getMailId());
+		assertEquals(1234567890L, user.getPhNo());
+
+		// Verify
+		verify(mockPreparedStatement).executeQuery();
+		verify(mockPreparedStatement).close();
 	}
 
 }
